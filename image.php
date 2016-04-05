@@ -9,9 +9,11 @@ $i_age = 300;
 // JSON cache age (seconds)
 $c_age = 1200;
 
+////////////////////////////////////////////////////////////////////////////////
 // Output an error message if something bad happened
 // Outputs as an image to be embed-friendly
 // Usage: err("Your message here");
+//
 function err($msg) {
   global $FONT;
   $im = imagecreatetruecolor(400, 30);
@@ -32,6 +34,8 @@ function err($msg) {
   imagedestroy($im);
   exit();
 }
+//
+////////////////////////////////////////////////////////////////////////////////
 
 header("Content-Type: image/png");
 
@@ -76,7 +80,9 @@ if (file_exists($cfile)) {
 }
 $cfx .= " (${cfile})";
 
+////////////////////////////////////////////////////////////////////////////////
 // If cached JSON wasn't loaded, fetch the Kickstarter page
+//
 if ($data == '') {
   $ch = curl_init();
   curl_setopt($ch, CURLOPT_URL, "https://www.kickstarter.com/projects/search.json?search=&term=${q}");
@@ -94,6 +100,8 @@ if ($data == '') {
   curl_close($ch);
   file_put_contents($cfile, $data);
 }
+//
+////////////////////////////////////////////////////////////////////////////////
 
 // A valid Kickstarter response should be a decent length
 if (strlen($data) < 50) {
@@ -107,6 +115,8 @@ if ($json['total_hits'] == '0') {
 }
 
 // Verify that KS found only one project
+// NOTE: This will also happen with unsuccessfully-completed campaigns!
+// TODO: Research why, and try to capture this
 if ($json['total_hits'] > 1) {
   err('Ambiguous project name, try again!');
 }
@@ -149,6 +159,9 @@ $l = round(256 - (($dims[2] - $dims[0]) / 2));
 imagettftext($im, 17, 0, $l+1,$y+1, $wt, $FONT_B, $title);
 imagettftext($im, 17, 0, $l,$y, $bk, $FONT_B, $title);
 
+////////////////////////////////////////////////////////////////////////////////
+// Process the project description, split by sentences
+//
 $y += 20;
 $ba = explode('.', $proj['blurb']);
 $sz = 10.5;
@@ -159,6 +172,7 @@ $c = count($ba);
 for ($i = 0; $i < $c; $i++) {
   $bline = trim($ba[$i]);
   if ($bline == '') continue;
+// Wrap line, truncate if necessary
   if (strlen($bline) > 80) {
     $sp = strpos($bline, ' ', 75);
     if ($c == 1) {
@@ -179,6 +193,8 @@ for ($i = 0; $i < $c; $i++) {
   $y += 15;
 }
 if ($c == 1) $y += 15;
+//
+////////////////////////////////////////////////////////////////////////////////
 
 // Magic conversion of K and M to prevent excessively long numbers
 $y += 10;
@@ -194,11 +210,11 @@ else if ($pledge >= 100000)
 $goal = $proj['goal'];
 $cs = $proj['currency_symbol'];
 
+// Output pledge/goal text
 $rem = "${cs}${pledge}  ";
 $rtxt = 'pledged toward';
 $goal = "  ${cs}${goal}  ";
 $gtxt = 'goal';
-
 $dims = imagettfbbox(14, 0, $FONT_B, $rem);
 $rem_w = $dims[2] - $dims[0];
 $dims = imagettfbbox(14, 0, $FONT, $rtxt);
@@ -209,7 +225,6 @@ $dims = imagettfbbox(14, 0, $FONT, $gtxt);
 $gtxt_w = $dims[2] - $dims[0];
 $twidth = $rem_w + $rtxt_w + $goal_w + $gtxt_w;
 $pos = 256 - round($twidth / 2);
-
 imagettftext($im, 14, 0, $pos+1,$y+1, $bk,      $FONT_B, $rem);
 imagettftext($im, 14, 0, $pos,$y,     $ksgreen, $FONT_B, $rem);
 $pos += $rem_w;
@@ -222,13 +237,18 @@ imagettftext($im, 14, 0, $pos,$y,     $bk,      $FONT, $gtxt);
 
 $y += 23;
 
+////////////////////////////////////////////////////////////////////////////////
+// Calculate time remaining (or if campaign is over)
+//
 $ctime = time();
 
+// If campaign is over, indicate how long ago it succeeded/failed
 if ($ctime > $proj['deadline']) {
   $day = floor(($ctime - $proj['deadline']) / 86400);
   $plural = ($day == 1) ? 'day' : 'days';
   if ($pledge >= $goal)
     $ftxt = "Funded ${day} ${plural} ago!";
+// Due to issues with JSON for unsuccessful campaigns, this bit probably won't happen
   else
     $ftxt = "Campaign ended ${day} ${plural} ago.";
   $dims = imagettfbbox(14, 0, $FONT_B,   $ftxt);
@@ -237,6 +257,7 @@ if ($ctime > $proj['deadline']) {
   imagettftext($im, 14, 0, $pos+1,$y+1, $bk, $FONT_B, $ftxt);
   if ($pledge >= $goal)
     imagettftext($im, 14, 0, $pos,$y, $ksgreen, $FONT_B, $ftxt);
+// Calculate and indicate how long until campaign ends
 } else {
   $sec = $proj['deadline'] - $ctime;
   $min = round($sec / 60);
@@ -277,7 +298,10 @@ if ($ctime > $proj['deadline']) {
 }
 
 $y += 10;
+//
+////////////////////////////////////////////////////////////////////////////////
 
+// Indicate when image was last generated (see image caching above)
 $date = 'Updated ' . gmstrftime('%H:%M:%S') . ' UTC';
 $dims = imagettfbbox(7, 0, $FONT, $date);
 $date_w = $dims[2] - $dims[0];
