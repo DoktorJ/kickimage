@@ -168,9 +168,9 @@ $sz = 10.5;
 $c = count($ba);
 for ($i = 0; $i < $c; $i++)
   if (trim($ba[$i]) == '') unset($ba[$i]);
-$c = count($ba);
+$c = min([count($ba),2]);
 for ($i = 0; $i < $c; $i++) {
-  $bline = trim($ba[$i]);
+  $bline = preg_replace('~\s+~',' ',trim($ba[$i]));
   if ($bline == '') continue;
 // Wrap line, truncate if necessary
   if (strlen($bline) > 80) {
