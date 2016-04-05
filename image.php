@@ -1,8 +1,17 @@
 <?php
 
+// Font to use for text (regular and bold)
 $FONT = 'TitilliumWeb-Regular.ttf';
 $FONT_B = 'TitilliumWeb-SemiBold.ttf';
 
+// Image cache age (seconds)
+$i_age = 300;
+// JSON cache age (seconds)
+$c_age = 1200;
+
+// Output an error message if something bad happened
+// Outputs as an image to be embed-friendly
+// Usage: err("Your message here");
 function err($msg) {
   global $FONT;
   $im = imagecreatetruecolor(400, 30);
@@ -10,7 +19,6 @@ function err($msg) {
   $bk = imagecolorallocatealpha($im, 0,0,0, 0);
   $wt = imagecolorallocatealpha($im, 255,255,255, 0);
   $rd = imagecolorallocatealpha($im, 255,0,0, 0);
-//  imagecolortransparent($im, $tx);
   imagefill($im, 1,1, $tx);
   $dims = imagettfbbox(12, 0, $FONT, $msg);
   $t = round(28 - (($dims[1] - $dims[7]) / 2));
@@ -26,14 +34,19 @@ function err($msg) {
 }
 
 header("Content-Type: image/png");
+
+// Check for search terms
 if (!isset($_GET['term'])) {
   err('No Project Specified!');
 }
 
+// Validate search terms
 $q = $_GET['term'];
 if (!preg_match('/^[a-z0-9\-\ \_\.\+]+$/i', $q)) {
   err('Invalid project name "' . $q . '"!');
 }
+
+// Generate cache file names
 $pfile = preg_replace('/[. \+]/', '', $q);
 if (strlen($pfile) > 64) $pfile = substr($pfile, 0, 64);
 $cfile = './cache/' . $pfile . '.json';
@@ -42,8 +55,9 @@ $ifile = './cache/' . $pfile . '.png';
 $data = '';
 $cfx = 'empty';
 
+// If a cached image exists and is fresh, just show it and quit it
 if (file_exists($ifile) && !isset($_GET['fresh'])) {
-  if ((time() - filemtime($ifile)) < 300) {
+  if ((time() - filemtime($ifile)) < $i_age) {
     $f = fopen($ifile,'r');
     fpassthru($f);
     fclose($f);
@@ -51,8 +65,9 @@ if (file_exists($ifile) && !isset($_GET['fresh'])) {
   }
 }
 
+// If the cached image is stale but JSON is still fresh, load cached JSON
 if (file_exists($cfile)) {
-  if ((time() - filemtime($cfile)) < 1200) {
+  if ((time() - filemtime($cfile)) < $c_age) {
     $data = file_get_contents($cfile);
     $cfx = 'fresh';
   } else {
@@ -61,9 +76,11 @@ if (file_exists($cfile)) {
 }
 $cfx .= " (${cfile})";
 
+// If cached JSON wasn't loaded, fetch the Kickstarter page
 if ($data == '') {
   $ch = curl_init();
   curl_setopt($ch, CURLOPT_URL, "https://www.kickstarter.com/projects/search.json?search=&term=${q}");
+  // Pretend to be Chrome so KS doesn't barf!
   curl_setopt($ch, CURLOPT_HTTPHEADER, array(
     'Pragma: no-cache',
     'Accept-Language: en-US,en;q=0.8',
@@ -78,24 +95,29 @@ if ($data == '') {
   file_put_contents($cfile, $data);
 }
 
+// A valid Kickstarter response should be a decent length
 if (strlen($data) < 50) {
   err('Invalid response from Kickstarter!');
 }
 
+// Verify that KS actually found something with the search terms
 $json = json_decode($data, true);
 if ($json['total_hits'] == '0') {
   err('Project not found!');
 }
 
+// Verify that KS found only one project
 if ($json['total_hits'] > 1) {
   err('Ambiguous project name, try again!');
 }
 
+// Get title
 $proj = $json['projects'][0];
 $title = preg_replace('/^([^-]+)-.*$/','$1',$proj['name']);
 $title = preg_replace('/^([^(]+) \(.*$/','$1',$title);
 $title = trim($title);
 
+// Create image and allocate colors for text
 $im = imagecreatetruecolor(512, 120);
 $whiteout = imagecolorallocatealpha($im, 255,255,255, 16);
 $ksgreen =  imagecolorallocatealpha($im,  43,222,115,  0);
@@ -103,6 +125,7 @@ $wt = imagecolorallocatealpha($im,    255,255,255, 0);
 $bk = imagecolorallocatealpha($im,    0,0,0,       0);
 $ovrbk = imagecolorallocatealpha($im, 0,0,0,      95);
 
+// Get the background image and apply it
 $bgim = $proj['photo']['1024x768'];
 $dot = strpos($bgim,'original.') + 9;
 $que = strpos($bgim,'?');
@@ -114,10 +137,12 @@ else if ($bgext == 'jpg')
 imagecopyresampled($im, $bg, 0,-132, 0,0, 512,384, 1024,768);
 imagedestroy($bg);
 
+// Fade out the background and make a border
 imagefilledrectangle($im, 0,0, 511,119, $whiteout);
 imagerectangle($im, 0,0, 511,119, $ksgreen);
 imagerectangle($im, 1,1, 510,118, $ksgreen);
 
+// Add text to the image -- the meat and potatoes!
 $y = 26;
 $dims = imagettfbbox(17, 0, $FONT_B, $title);
 $l = round(256 - (($dims[2] - $dims[0]) / 2));
@@ -155,6 +180,7 @@ for ($i = 0; $i < $c; $i++) {
 }
 if ($c == 1) $y += 15;
 
+// Magic conversion of K and M to prevent excessively long numbers
 $y += 10;
 $pledge = $proj['pledged'];
 if ($pledge >= 100000000)
@@ -195,39 +221,62 @@ $pos += $goal_w;
 imagettftext($im, 14, 0, $pos,$y,     $bk,      $FONT, $gtxt);
 
 $y += 23;
-$sec = $proj['deadline'] - time();
-$hr = round($sec / 3600);
-$day = floor($hr / 24);
-$hr %= 24;
 
-if ($day == 0)
-  $dtxt = '';
-else if ($day == 1)
-  $dtxt = '1 day ';
-else
-  $dtxt = "${day} days ";
+$ctime = time();
 
-if ($hr == 0)
-  $htxt = '';
-else if ($hr == 1)
-  $htxt = ($day > 0) ? ', 1 hour' : '1 hour';
-else
-  $htxt = ($day > 0) ? ", ${hr} hours" : "${hr} hours";
+if ($ctime > $proj['deadline']) {
+  $day = floor(($ctime - $proj['deadline']) / 86400);
+  $plural = ($day == 1) ? 'day' : 'days';
+  if ($pledge >= $goal)
+    $ftxt = "Funded ${day} ${plural} ago!";
+  else
+    $ftxt = "Campaign ended ${day} ${plural} ago.";
+  $dims = imagettfbbox(14, 0, $FONT_B,   $ftxt);
+  $twidth = $dims[2] - $dims[0];
+  $pos = 256 - round($twidth / 2);
+  imagettftext($im, 14, 0, $pos+1,$y+1, $bk, $FONT_B, $ftxt);
+  if ($pledge >= $goal)
+    imagettftext($im, 14, 0, $pos,$y, $ksgreen, $FONT_B, $ftxt);
+} else {
+  $sec = $proj['deadline'] - $ctime;
+  $min = round($sec / 60);
+  $hr = round($sec / 3600);
+  $day = floor($hr / 24);
+  $hr %= 24;
 
-$togo = $htxt . ' to go!';
-$dims = imagettfbbox(14, 0, $FONT_B, $dtxt);
-$dtxt_w = $dims[2] - $dims[0];
-$dims = imagettfbbox(14, 0, $FONT,   $togo);
-$togo_w = $dims[2] - $dims[0];
-$twidth = $dtxt_w + $togo_w;
-$pos = 256 - round($twidth / 2);
+  $mtxt = '';
+  if ($day == 0) {
+    $dtxt = '';
+    if ($min != 0) $mtxt = "${min} minute";
+    if ($min > 1) $mtxt .= 's';
+  } else if ($day == 1)
+    $dtxt = '1 day ';
+  else
+    $dtxt = "${day} days ";
 
-imagettftext($im, 14, 0, $pos,$y, $bk, $FONT_B, $dtxt);
-$pos += $dtxt_w;
-imagettftext($im, 14, 0, $pos,$y, $bk, $FONT, $togo);
+  if ($hr == 0)
+    $htxt = '';
+  else if ($hr == 1)
+    $htxt = ($day > 0) ? ', 1 hour' : '1 hour';
+  else
+    $htxt = ($day > 0) ? ", ${hr} hours" : "${hr} hours";
+
+  if ($hr > 0 && $mtxt != '') $htxt .= ', ';
+  if ($mtxt != '') $htxt .= $mtxt;
+  $togo = $htxt . ' to go!';
+  $dims = imagettfbbox(14, 0, $FONT_B, $dtxt);
+  $dtxt_w = $dims[2] - $dims[0];
+  $dims = imagettfbbox(14, 0, $FONT,   $togo);
+  $togo_w = $dims[2] - $dims[0];
+  $twidth = $dtxt_w + $togo_w;
+  $pos = 256 - round($twidth / 2);
+
+  imagettftext($im, 14, 0, $pos,$y, $bk, $FONT_B, $dtxt);
+  $pos += $dtxt_w;
+  imagettftext($im, 14, 0, $pos,$y, $bk, $FONT, $togo);
+}
 
 $y += 10;
-//imagettftext($im, 12, 0, 10, $y, $ksgreen, $FONT, $cfx);
 
 $date = 'Updated ' . gmstrftime('%H:%M:%S') . ' UTC';
 $dims = imagettfbbox(7, 0, $FONT, $date);
@@ -236,6 +285,7 @@ $x = 501 - $date_w;
 $y = 111;
 imagettftext($im, 7, 0, $x, $y, $ovrbk, $FONT, $date);
 
+// Put it all together and output the image!
 imagealphablending($im, false);
 imagesavealpha($im, true);
 imagepng($im,$ifile);
